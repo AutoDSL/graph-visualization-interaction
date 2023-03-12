@@ -1,14 +1,248 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
     <head>
-        <meta charset="utf-8" />
-        <title>一个简单的关系图</title>
-        <link rel="stylesheet" href="./index.css" />
+        <meta charset="UTF-8" />
+        <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <script src="http://d3js.org/d3.v4.min.js" charset="utf-8"></script>
+        <title>D3</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+            }
+            body {
+                width: 100vw;
+                height: 100vh;
+                overflow: hidden;
+            }
+            .svg {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+            }
+            .info {
+                position: fixed;
+                top: 0;
+                height: 60px;
+                width: 100vw;
+                background-color: #fff;
+                border-bottom: 1px solid #e2e2e2;
+                padding: 20px;
+                z-index: 999;
+                display: flex;
+                justify-content: space-around;
+            }
+            .info .label {
+                font-size: 20px;
+                font-weight: bold;
+            }
+            .info .list {
+                font-size: 18px;
+                max-width: 40vw;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+        </style>
     </head>
     <body>
-        <!-- 创建图容器 -->
-        <div id="mountNode"></div>
-        <!-- <script src="https://gw.alipayobjects.com/os/antv/pkg/_antv.g6-3.1.1/build/g6.js"></script> -->
-        <script src="./index.js"></script>
+        <div class="info">
+            <div class="neighbors">
+                <div class="label">邻居节点</div>
+                <div class="list"></div>
+            </div>
+            <div class="sameClass">
+                <div class="label">同类节点</div>
+                <div class="list"></div>
+            </div>
+        </div>
+        <div class="svg" id="forceDirected"></div>
+        <script>
+            const nodesCount = 300
+            const edgesCount = 150
+            const ranks = 5
+            var data = {
+                nodes: [],
+                edges: []
+            }
+
+            for (let i = 0; i < nodesCount; i++) {
+                data.nodes.push({ name: i.toString(), class: i % 4 })
+            }
+            for (let r = 0; r < ranks - 1; r++) {
+                for (let i = 0; i < edgesCount / ranks; i++) {
+                    let from = ((nodesCount / ranks) * r + Math.floor(Math.random() * (nodesCount / ranks))).toString()
+                    let to = ((nodesCount / ranks) * (r + 1) + Math.floor(Math.random() * (nodesCount / ranks))).toString()
+                    if (from != to) data.edges.push({ source: from, target: to, relation: 'from ' + from + ' to ' + to })
+                }
+            }
+            function forceDirected() {
+                let width = document.body.clientWidth
+                let height = document.body.clientHeight
+                let padding = {
+                    left: 30,
+                    right: 30,
+                    top: 20,
+                    bottom: 20
+                }
+                var nodes = data.nodes
+                var links = data.edges
+
+                let svg = d3
+                    .select('#forceDirected')
+                    .append('svg')
+                    .attr('width', width)
+                    .attr('height', height)
+                    .call(
+                        d3.zoom().on('zoom', function () {
+                            svg.attr('transform', d3.event.transform)
+                        })
+                    )
+                    .append('g')
+                // 通过布局来转换数据，然后进行绘制
+                let simulation = d3
+                    .forceSimulation()
+                    .nodes(nodes)
+                    .force('link', d3.forceLink(links).distance(100))
+                    .force('center', d3.forceCenter((width - padding.left - padding.right) / 2, (height - padding.top - padding.bottom) / 2))
+                    .force('charge', d3.forceManyBody().strength(5))
+                    .force('collide', d3.forceCollide().radius(50).iterations(20))
+                let color = d3.scaleOrdinal(d3.schemeCategory20)
+                // 添加连线
+                svg.selectAll('line')
+                    .data(links)
+                    .enter()
+                    .append('line')
+                    .style('stroke', '#ccc')
+                    .style('stroke-width', 2)
+                    .text(function (d) {
+                        return ''
+                    })
+                // 添加节点
+                var nodeDoms = svg
+                    .selectAll('circle')
+                    .data(nodes)
+                    .enter()
+                    .append('circle')
+                    .attr('r', 20)
+                    .style('fill', function (d, i) {
+                        return color(d.class)
+                    })
+                    .on('mouseover', function (e) {
+                        let ardLinks = links.filter(item => item.source == e || item.target == e)
+                        // console.log(ardLinks)
+                        let neighbors = ardLinks.map(item => {
+                            if (item.source == e) {
+                                return item.target.name
+                            } else {
+                                return item.source.name
+                            }
+                        })
+                        let sameClass = nodes.filter(item => item.class == e.class).map(item => item.name)
+                        // console.log(e.name, 'nbs:', neighbors, 'scls:', sameClass)
+                        document.querySelector('.neighbors .list').innerHTML = neighbors.join(',')
+                        document.querySelector('.sameClass .list').innerHTML = sameClass.join(',')
+                        nodeDoms.style('fill', function (d, i) {
+                            return neighbors.includes(d.name) ? color(5) : sameClass.includes(d.name) ? color(6) : color(d.class)
+                        })
+                    })
+                    .on('mouseleave', e => {
+                        nodeDoms.style('fill', function (d, i) {
+                            return color(d.class)
+                        })
+                    })
+                    // 添加圆圈的拖拽事件，同时他会触发simulation的tick事件，重新布局该区域
+                    .call(
+                        d3
+                            .drag()
+                            .on('start', function (d) {
+                                if (!d3.event.active) {
+                                    simulation.alphaTarget(0.8).restart() // 设置衰减系数，对节点位置移动过程的模拟，数值越高移动越快，数值范围[0，1]
+                                }
+                                d.fx = d.x
+                                d.fy = d.y
+                            })
+                            .on('drag', function (d) {
+                                d.fx = d3.event.x
+                                d.fy = d3.event.y
+                            })
+                            .on('end', function (d) {
+                                if (!d3.event.active) {
+                                    simulation.alphaTarget(0)
+                                }
+                                d.fx = null
+                                d.fy = null
+                            })
+                    )
+                // 添加描述
+                svg.selectAll('text')
+                    .data(nodes)
+                    .enter()
+                    .append('text')
+                    .style('font-size', '12px')
+                    .style('fill', '#000')
+                    .style('pointer-events', 'none')
+                    .attr('dx', -5)
+                    .attr('dy', 3)
+                    .text(function (d) {
+                        return d.name
+                    })
+                // 添加relation
+                // svg.selectAll('.relation')
+                //     .data(links)
+                //     .enter()
+                //     .append('text')
+                //     .style('fill', 'red')
+                //     .style('font-size', '12px')
+                //     .attr('class', 'relation')
+                //     .attr('dx', 0)
+                //     .attr('dy', 0)
+                //     .text(function (d) {
+                //         return d.relation
+                //     })
+
+                //数据重绘
+                simulation.on('tick', function () {
+                    svg.selectAll('circle')
+                        .attr('cx', function (d) {
+                            return d.x
+                        })
+                        .attr('cy', function (d) {
+                            return d.y
+                        })
+                    svg.selectAll('text')
+                        .attr('x', function (d) {
+                            return d.x
+                        })
+                        .attr('y', function (d) {
+                            return d.y
+                        })
+                    svg.selectAll('line')
+                        .attr('x1', function (d) {
+                            return d.source.x
+                        })
+                        .attr('y1', function (d) {
+                            return d.source.y
+                        })
+                        .attr('x2', function (d) {
+                            return d.target.x
+                        })
+                        .attr('y2', function (d) {
+                            return d.target.y
+                        })
+                    svg.selectAll('.relation')
+                        .attr('x', function (d) {
+                            return (d.source.x + d.target.x) / 2
+                        })
+                        .attr('y', function (d) {
+                            return (d.source.y + d.target.y) / 2
+                        })
+                })
+            }
+            forceDirected()
+        </script>
     </body>
 </html>
